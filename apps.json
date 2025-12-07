@@ -1,0 +1,37 @@
+[
+    {
+        "name": "Adobe Premiere Pro",
+        "path": "D:/pr2024/Adobe Premiere Pro 2024/Adobe Premiere Pro.exe",
+        "icon": "D:/pr2024/Adobe Premiere Pro 2024/Adobe Premiere Pro.exe"
+    },
+    {
+        "name": "Aseprite",
+        "path": "D:/Aseprite/Aseprite.exe",
+        "icon": "D:/Aseprite/Aseprite.exe"
+    },
+    {
+        "name": "浏览器 (示例)",
+        "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+        "icon": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    },
+    {
+        "name": "场景设计",
+        "path": "C:/Users/soub/Desktop/场景设计",
+        "icon": "C:/Users/soub/Desktop/场景设计"
+    },
+    {
+        "name": "Documents",
+        "path": "C:/Users/soub/Documents",
+        "icon": "C:/Users/soub/Documents"
+    },
+    {
+        "name": "A HUB",
+        "path": "D:/新建文件夹 (9)/A HUB.exe",
+        "icon": "D:/新建文件夹 (9)/A HUB.exe"
+    },
+    {
+        "name": "百度",
+        "path": "http://baidu.com",
+        "icon": "http://baidu.com"
+    }
+]
