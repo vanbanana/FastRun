@@ -1,0 +1,7 @@
+{
+    "btn_size": 121,
+    "grid_spacing": 29,
+    "grid_margin": 12,
+    "magnet_threshold": 32,
+    "magnet_delay": 260
+}

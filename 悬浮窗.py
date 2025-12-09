@@ -6,11 +6,12 @@ import webbrowser
 from functools import partial
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMenu, QPushButton, QVBoxLayout,
-    QHBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QLineEdit, QGridLayout, QGraphicsOpacityEffect
+    QHBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QLineEdit, QGridLayout, QGraphicsOpacityEffect,
+    QDialog, QListWidget, QListWidgetItem
 )
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
-from PyQt6.QtCore import Qt, QPoint, QEvent, QSize, QTimer, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect
-from PyQt6.QtGui import QPainter, QColor, QBrush, QIcon, QPixmap, QDrag
+from PyQt6.QtCore import Qt, QPoint, QEvent, QSize, QTimer, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect, QSequentialAnimationGroup
+from PyQt6.QtGui import QPainter, QColor, QBrush, QIcon, QPixmap, QDrag, QPen
 from PyQt6.QtCore import pyqtSignal, QThread
 from PyQt6.QtWidgets import QFileIconProvider
 from PyQt6.QtCore import QFileInfo
@@ -83,6 +84,34 @@ def extract_qicon_from_file(path):
         pass
 
     return QIcon()
+
+def resolve_windows_shortcut(path):
+    """解析 .lnk 快捷方式，返回 (target_path, icon_path)。失败则返回 (None, None)。
+
+    为避免复杂的 COM 封装，这里调用 PowerShell 读取 TargetPath 与 IconLocation，更稳定。
+    """
+    try:
+        if not path.lower().endswith('.lnk'):
+            return None, None
+        if not os.path.exists(path):
+            return None, None
+        ps_path = path.replace("'", "''")
+        cmd = [
+            "powershell", "-NoLogo", "-NoProfile", "-Command",
+            f"$s=New-Object -ComObject WScript.Shell; $lnk=$s.CreateShortcut('{ps_path}'); "
+            "Write-Output $lnk.TargetPath; Write-Output $lnk.IconLocation;"
+        ]
+        out = subprocess.check_output(cmd, text=True, encoding='utf-8', errors='ignore')
+        lines = [l.strip() for l in out.splitlines() if l.strip()]
+        target = lines[0] if lines else None
+        icon_loc = lines[1] if len(lines) > 1 else None
+        if icon_loc:
+            icon_path = icon_loc.split(',', 1)[0].strip()
+        else:
+            icon_path = target
+        return (target or None), (icon_path or None)
+    except Exception:
+        return None, None
 
 
 def fetch_favicon_bytes(url, timeout=6):
@@ -191,85 +220,117 @@ def _get_pixmap_for_icon_key(icon_key, btn_size):
         return QPixmap()
 
 
-def generate_combo_icon(icon_keys, size=112):
-    """根据一组 icon_keys 生成一个拼贴组合图标，返回 QIcon。
-    icon_keys: list of strings (paths/urls/keys)
-    size: 输出图标像素大小（正方形）
-    组合规则：
-      - 1 个图标：直接缩放并居中
-      - 2 个图标：左右两栏
-      - 3-4 个图标：2x2 网格
-      - >4 个：取前 9，3x3 网格
+def generate_combo_icon(icon_items, size=112):
+    """根据 icon_items 生成一个拼贴组合图标，返回 QIcon。
+    优化：增加背景容器，并强制图标在格子里居中显示。
     """
     try:
-        count = max(1, min(len(icon_keys), 9))
+        count = max(1, min(len(icon_items), 9))
+        
+        # 定义网格布局 (行数, 列数)
         if count == 1:
             grid = (1, 1)
         elif count == 2:
+            # 2个图标：左右两列 (1行, 2列)
             grid = (1, 2)
         elif count <= 4:
+            # 3-4个图标：2x2 网格
             grid = (2, 2)
         else:
+            # 5个以上：3x3 网格
             grid = (3, 3)
 
         rows, cols = grid
-        pad = int(size * 0.06)
+        # 增加一点内边距，让图标不要贴着边框
+        pad = int(size * 0.1) 
+        
+        # 计算每个格子的最大可用宽高
+        # 总宽度减去所有间隙，除以列数
         cell_w = (size - pad * (cols + 1)) // cols
         cell_h = (size - pad * (rows + 1)) // rows
 
         out = QPixmap(size, size)
-        out.fill(QColor(0, 0, 0, 0))
+        out.fill(QColor(0, 0, 0, 0)) # 透明背景
+        
         painter = QPainter(out)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        # 背景底座
-        painter.setBrush(QBrush(QColor(255, 255, 255)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(out.rect(), 12, 12)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        
+        # --- 1. 绘制文件夹背景 (容器) ---
+        # 透明磨砂效果背景
+        bg_color = QColor(240, 240, 240, 200)  # 半透明白色背景
+        border_color = QColor(200, 200, 200, 150)  # 半透明边框
+        
+        painter.setBrush(QBrush(bg_color))
+        painter.setPen(QPen(border_color, 2)) 
+        # 绘制圆角矩形背景
+        rect = out.rect().adjusted(2, 2, -2, -2)
+        painter.drawRoundedRect(rect, 18, 18)
+        
+        # 添加文件夹顶部标签效果
+        folder_tab_color = QColor(220, 220, 220, 180)
+        painter.setBrush(QBrush(folder_tab_color))
+        painter.setPen(QPen(border_color, 1))
+        tab_rect = QRect(rect.x() + rect.width() * 0.3, rect.y() - 8, rect.width() * 0.4, 16)
+        painter.drawRoundedRect(tab_rect, 8, 8)
 
-        # 绘制每个子图标
+        # --- 2. 绘制每个子图标 ---
         for idx in range(count):
             r = idx // cols
             c = idx % cols
-            x = pad + c * (cell_w + pad)
-            y = pad + r * (cell_h + pad)
-            key = icon_keys[idx]
-            # 尝试直接加载已存在的文件或生成占位
+            
+            # 计算当前格子的左上角坐标
+            x_cell = pad + c * (cell_w + pad)
+            y_cell = pad + r * (cell_h + pad)
+            
+            item = icon_items[idx]
             pix = None
+            
+            # --- 获取图片逻辑 (保持原逻辑不变) ---
             try:
-                if os.path.exists(key):
-                    tmp = QPixmap(key)
-                    if not tmp.isNull():
-                        pix = tmp.scaled(cell_w, cell_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                else:
-                    # 试从文件名为 URL 的缓存中找
-                    cache_dir = os.path.join(os.path.dirname(__file__), 'icon_cache')
-                    if os.path.isdir(cache_dir):
-                        h = hashlib.sha1(key.encode('utf-8')).hexdigest()
-                        for fn in os.listdir(cache_dir):
-                            if fn.startswith(h):
-                                fpath = os.path.join(cache_dir, fn)
-                                tmp = QPixmap(fpath)
-                                if not tmp.isNull():
-                                    pix = tmp.scaled(cell_w, cell_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                if isinstance(item, QPixmap):
+                    pix = item
+                elif isinstance(item, QIcon):
+                    pix = item.pixmap(cell_w, cell_h)
+                elif isinstance(item, str):
+                    key = item
+                    if os.path.exists(key):
+                        pix = QPixmap(key)
+                    else:
+                        # 尝试从缓存加载
+                        cache_dir = os.path.join(os.path.dirname(__file__), 'icon_cache')
+                        if os.path.isdir(cache_dir):
+                            h = hashlib.sha1(key.encode('utf-8')).hexdigest()
+                            for fn in os.listdir(cache_dir):
+                                if fn.startswith(h):
+                                    pix = QPixmap(os.path.join(cache_dir, fn))
                                     break
             except Exception:
                 pix = None
 
-            if pix is None:
-                pix = _get_pixmap_for_icon_key(key, max(cell_w, cell_h))
-                if not pix.isNull():
-                    pix = pix.scaled(cell_w, cell_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            # 如果没找到图，生成首字母占位
+            if pix is None or pix.isNull():
+                pix = _get_pixmap_for_icon_key(str(item), max(cell_w, cell_h))
 
-            if not pix.isNull():
-                # 画圆角裁剪
-                target = QRect(x, y, cell_w, cell_h)
-                painter.drawPixmap(target, pix)
+            # --- 绘制逻辑 (核心优化) ---
+            if pix and not pix.isNull():
+                # 1. 按比例缩放到适合格子的大小
+                scaled_pix = pix.scaled(cell_w, cell_h, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                
+                # 2. 计算居中偏移量 (重要步骤，防止图标飘在左上角)
+                off_x = (cell_w - scaled_pix.width()) // 2
+                off_y = (cell_h - scaled_pix.height()) // 2
+                
+                # 3. 绘制
+                target_x = x_cell + off_x
+                target_y = y_cell + off_y
+                painter.drawPixmap(target_x, target_y, scaled_pix)
 
         painter.end()
         return QIcon(out)
-    except Exception:
+    except Exception as e:
+        print(f"Combo icon error: {e}")
         return QIcon()
-
 
 DEBUG = False
 
@@ -293,7 +354,7 @@ class FloatingBall(QWidget):
 
         # 2. 去掉标题栏和边框 (Frameless)
         # 这里的 WindowStaysOnTopHint 让它永远置顶
-        # Tool 属性可以让它不出现在任务栏里（可选）
+        # Tool 属性 Lets it not appear in task bar (Optional)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | 
                             Qt.WindowType.WindowStaysOnTopHint | 
                             Qt.WindowType.Tool)
@@ -645,8 +706,9 @@ class LauncherWindow(QWidget):
         content_widget = QWidget()
         # 使用绝对定位的内容区（不使用 QGridLayout），实现自定义流式布局与动画重排
         self.content_widget = content_widget
+        self.content_widget.setAcceptDrops(True)
         # spacing / margin 设置
-        self.grid_spacing = 16
+        self.grid_spacing = 22  # 稍微加大间距，减少误吸附
         self.grid_margin = 12
         scroll.setWidget(content_widget)
         frame_layout.addWidget(scroll)
@@ -665,8 +727,18 @@ class LauncherWindow(QWidget):
         # 磁吸目标与其原始 geometry（用于动画恢复）
         self._magnet_target = None
         self._magnet_orig_geom = None
+        self._magnet_offset = QPoint(0, 0)
+        self._magnet_threshold = 26  # 磁吸触发距离（像素）稍放宽以增强吸附感
+        self._magnet_delay_ms = 320  # 停留时间阈值（毫秒）加快确认
+        self._magnet_candidate = None
+        self._magnet_candidate_snap = None
+        self._magnet_timer = QTimer(self)
+        self._magnet_timer.setSingleShot(True)
+        self._magnet_timer.timeout.connect(self._confirm_magnet_candidate)
         # 动画引用池，防止被回收
         self._anims = []
+        # 支持窗口级拖拽添加
+        self.setAcceptDrops(True)
 
         # 初次填充应用网格
         # 延迟首次填充，使控件完成 show/layout 后再计算尺寸
@@ -704,6 +776,61 @@ class LauncherWindow(QWidget):
             print(f"启动应用失败: {e}")
         # 启动后关闭启动器窗口
         self.close()
+
+    def _apply_magnet_style(self, widget, enable, strong=False):
+        """为磁吸预览/锁定添加视觉效果。"""
+        try:
+            if not widget:
+                return
+            if enable:
+                color = '#5b8cff' if strong else '#8fb3ff'
+                width = 3 if strong else 2
+                widget.setStyleSheet(f'QWidget{{border:{width}px {"solid" if strong else "dashed"} {color}; border-radius:14px;}}')
+            else:
+                widget.setStyleSheet('')
+        except Exception:
+            pass
+
+    def _clear_magnet_style_on_all(self):
+        """清除当前所有单元上的磁吸高亮。"""
+        try:
+            for c in self.cells:
+                self._apply_magnet_style(c, False)
+        except Exception:
+            pass
+
+    def _pulse_widget(self, widget, factor=1.08, duration=150):
+        """小幅脉冲动画，模拟吸附的“弹”一下。"""
+        try:
+            if not widget:
+                return
+            g = widget.geometry()
+            cx, cy = g.center().x(), g.center().y()
+            new_w = int(g.width() * factor)
+            new_h = int(g.height() * factor)
+            new_x = cx - new_w // 2
+            new_y = cy - new_h // 2
+            expanded = QRect(new_x, new_y, new_w, new_h)
+
+            anim_up = QPropertyAnimation(widget, b'geometry', self)
+            anim_up.setDuration(duration)
+            anim_up.setEasingCurve(QEasingCurve.Type.OutBack)
+            anim_up.setStartValue(g)
+            anim_up.setEndValue(expanded)
+
+            anim_down = QPropertyAnimation(widget, b'geometry', self)
+            anim_down.setDuration(duration)
+            anim_down.setEasingCurve(QEasingCurve.Type.OutBack)
+            anim_down.setStartValue(expanded)
+            anim_down.setEndValue(g)
+
+            group = QSequentialAnimationGroup(self)
+            group.addAnimation(anim_up)
+            group.addAnimation(anim_down)
+            group.start()
+            self._anims.append(group)
+        except Exception:
+            pass
 
     def rebuild_app_grid(self, filter_text=''):
         """根据 self.apps 和 filter_text 重新生成图标网格（多列）。
@@ -744,7 +871,7 @@ class LauncherWindow(QWidget):
         cols = max(1, avail_w // (btn_size + spacing))
 
         n = len(apps)
-        rows = math.ceil(n / cols)
+        rows = math.ceil(max(1, n + 1) / cols)  # 预留“添加”按钮一格
 
         # 预计算每个格子的位置
         cell_h = btn_size + (QFontMetrics(QLabel().font()).height() + 2)
@@ -854,7 +981,11 @@ class LauncherWindow(QWidget):
         lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         lbl.setFixedHeight(fm.height() + 2)
         layout_inner.addWidget(lbl)
-        add_pos = positions[-1] if positions else QPoint(margin, margin)
+        add_idx = n  # 紧跟应用后
+        add_r = add_idx // cols
+        add_c = add_idx % cols
+        add_pos = QPoint(margin + add_c * (btn_size + spacing),
+                         margin + add_r * (cell_h + spacing))
         add_cell.setFixedSize(btn_size, cell_h)
         add_cell.move(add_pos)
         add_cell.show()
@@ -887,21 +1018,128 @@ class LauncherWindow(QWidget):
     def on_search_text_changed(self, text):
         self.rebuild_app_grid(text)
 
+    # --- 外部拖放添加应用 ---
+    def dragEnterEvent(self, event):
+        try:
+            if event.mimeData().hasUrls() or event.mimeData().hasText():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        except Exception:
+            event.ignore()
+
+    def dropEvent(self, event):
+        handled = False
+        try:
+            if event.mimeData().hasUrls():
+                urls = event.mimeData().urls()
+                if urls:
+                    handled = self._handle_drop_urls(urls)
+            elif event.mimeData().hasText():
+                text = event.mimeData().text().strip()
+                handled = self._handle_drop_text(text)
+        finally:
+            if handled:
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+
+    def _handle_drop_urls(self, urls):
+        """处理从文件管理器/浏览器拖入的 url 列表。仅取第一个。"""
+        try:
+            if not urls:
+                return False
+            url = urls[0]
+            if url.isLocalFile():
+                path = url.toLocalFile()
+                if not path or not os.path.exists(path):
+                    return False
+                abs_path = os.path.abspath(path)
+                # 若是快捷方式，解析目标与图标路径，尽量使用目标 exe/dir 的图标
+                icon_path = abs_path
+                if abs_path.lower().endswith('.lnk'):
+                    tgt, ico = resolve_windows_shortcut(abs_path)
+                    if tgt:
+                        abs_path = tgt
+                        icon_path = ico or tgt
+                if os.path.isdir(abs_path):
+                    name = os.path.basename(os.path.normpath(abs_path)) or abs_path
+                else:
+                    name = os.path.splitext(os.path.basename(abs_path))[0] or abs_path
+                # 与手动添加一致：path/icon 使用实际路径，去重用绝对路径
+                return self._add_app_entry(name=name, path=abs_path, icon=icon_path)
+            else:
+                # 非本地文件，按文本 URL 处理
+                return self._handle_drop_text(url.toString())
+        except Exception as e:
+            print(f"处理拖入文件失败: {e}")
+            return False
+
+    def _handle_drop_text(self, text):
+        """处理纯文本拖入（主要是 URL）。"""
+        try:
+            if not text:
+                return False
+            t = text.strip()
+            # 只接受 http/https；与手动添加一致，缺 scheme 自动补全 http://
+            if not t.lower().startswith(('http://', 'https://')):
+                t = 'http://' + t
+            # 规范化尾部斜杠
+            t = t.rstrip('/')
+            try:
+                parsed = urllib.parse.urlparse(t)
+                name = parsed.netloc or t
+            except Exception:
+                name = t
+            return self._add_app_entry(name=name, path=t, icon=t)
+        except Exception as e:
+            print(f"处理拖入文本失败: {e}")
+            return False
+
+    def _add_app_entry(self, name, path, icon):
+        """去重后添加应用并刷新。"""
+        if not path:
+            return False
+        key = os.path.abspath(path) if os.path.exists(path) else path
+        for a in self.apps:
+            existing = a.get('path') or ''
+            if existing:
+                if os.path.exists(existing):
+                    try:
+                        if os.path.abspath(existing) == key:
+                            print("拖入的应用已存在，忽略。")
+                            return False
+                    except Exception:
+                        pass
+                if existing == key:
+                    print("拖入的应用已存在，忽略。")
+                    return False
+        new_app = {"name": name, "path": key, "icon": icon}
+        self.apps.append(new_app)
+        try:
+            self.save_config()
+        except Exception as e:
+            print(f"保存拖入应用失败: {e}")
+        self.rebuild_app_grid(self.search.text() if hasattr(self, 'search') else '')
+        return True
+
     def on_app_context_menu(self, app, btn, pos):
         menu = QMenu(self)
         menu.addAction('重命名', lambda: self.rename_app(app))
         menu.addAction('删除', lambda: self.delete_app(app))
+        
         # 如果是组合应用，提供解散选项
         if app.get('combo'):
             menu.addSeparator()
             menu.addAction('解散组合', lambda: self.dissolve_combo(app))
+        
         global_pos = btn.mapToGlobal(pos)
         menu.exec(global_pos)
 
     def _on_launch_combo(self, app):
         """同时启动组合中的所有成员（按顺序）。"""
         try:
-            members = app.get('combo') or []
+            members = self._flatten_combo_apps(app)
             for m in members:
                 path = None
                 if isinstance(m, dict):
@@ -920,6 +1158,15 @@ class LauncherWindow(QWidget):
             self.close()
         except Exception:
             pass
+
+    def _flatten_combo_apps(self, app):
+        """将组合展开成成员列表，普通应用返回自身列表。"""
+        if isinstance(app, dict) and app.get('combo'):
+            result = []
+            for m in app.get('combo') or []:
+                result.extend(self._flatten_combo_apps(m))
+            return result
+        return [app]
 
     def dissolve_combo(self, app):
         """对给定的组合应用执行消散动画并在动画结束后从 apps 列表中移除。"""
@@ -1162,294 +1409,298 @@ class LauncherWindow(QWidget):
 
     # --- Drag / Reorder helpers for realtime drag-and-animate behavior ---
     def start_drag(self, cell, press_global_pos):
-        # 标记拖拽单元，并记录鼠标相对于单元左上角的偏移
+        """开始拖拽：记录初始状态，将当前单元置顶。"""
         try:
             self._dragging_cell = cell
-            cell.raise_()
-            # convert global press to local content coords
+            cell.raise_() # 让被拖拽的物体浮在最上层
+            # 重置磁吸状态
+            self._magnet_target = None
+            self._magnet_offset = QPoint(0, 0)
+            self._magnet_orig_geom = None
+            self._magnet_candidate = None
+            self._magnet_candidate_snap = None
+            self._magnet_timer.stop()
+            
+            # 计算鼠标点击位置相对于 Cell 左上角的偏移，防止拖拽时图标瞬移
             content_pos = self._content_widget.mapFromGlobal(press_global_pos)
             self._dragging_offset = content_pos - cell.pos()
-        except Exception:
+            
+            # 记录当前被拖拽物体在列表中的索引，用于检测位置变化
+            if cell in self.cells:
+                self._drag_current_idx = self.cells.index(cell)
+            else:
+                self._drag_current_idx = -1
+                
+        except Exception as e:
+            print(f"Start drag error: {e}")
             self._dragging_cell = None
 
     def update_drag(self, cell, global_pos):
-        # 使被拖拽单元跟随鼠标（直接 move），并计算目标索引，实时动画其他单元到位
+        """拖拽中：核心物理引擎逻辑。
+        实现“实体碰撞”效果：当拖拽物入侵其他物体领地时，其他物体自动弹开。
+        """
         try:
-            if self._dragging_cell is not cell:
+            if self._dragging_cell is not cell or not self.cells:
                 return
+
+            # 1. 移动被拖拽的图标跟随鼠标
             content_pos = self._content_widget.mapFromGlobal(global_pos)
             new_top_left = content_pos - self._dragging_offset
-            # 限制在内容区域内
-            cw = max(0, min(new_top_left.x(), max(0, self._content_widget.width() - cell.width())))
-            ch = max(0, min(new_top_left.y(), max(0, self._content_widget.height() - cell.height())))
+            
+            # 限制拖拽范围不跑出容器太多
+            cw = max(-20, min(new_top_left.x(), self._content_widget.width() - cell.width() + 20))
+            ch = max(-20, min(new_top_left.y(), self._content_widget.height() - cell.height() + 20))
             cell.move(QPoint(cw, ch))
-            # 磁吸逻辑：寻找最近的其他单元（排除自己）并计算距离
-            if not self.cells:
+
+            # 已有磁吸目标：直接带动目标一起移动，暂不触发布局重排
+            if self._magnet_target:
+                follow_pos = QPoint(cw, ch) + self._magnet_offset
+                self._magnet_target.move(follow_pos)
                 return
-            center = cell.pos() + QPoint(cell.width()//2, cell.height()//2)
+            
+            # 磁吸预检测：靠近后开启计时，达到延时才真正吸附
+            g1 = cell.geometry()
             nearest = None
-            nearest_dist = None
-            for c in self.cells:
-                if c is cell:
+            nearest_snap = None
+            for other in self.cells:
+                if other is cell:
                     continue
-                c_center = c.pos() + QPoint(c.width()//2, c.height()//2)
-                d = (c_center - center).manhattanLength()
-                if nearest is None or d < nearest_dist:
-                    nearest = c
-                    nearest_dist = d
+                g2 = other.geometry()
+                overlap_y = not (g1.bottom() < g2.top() or g2.bottom() < g1.top())
+                dx = min(abs(g1.right() - g2.left()), abs(g2.right() - g1.left()))
 
-            MAGNET_THRESHOLD = 80
-            # 如果接近某个单元并在阈值内，设置为磁吸目标并对目标做弹性位移/缩放提示
-            if nearest is not None and nearest_dist is not None and nearest_dist <= MAGNET_THRESHOLD:
-                # 如果新的磁吸目标与之前不同，先将旧目标恢复
-                if self._magnet_target is not None and self._magnet_target is not nearest:
-                    try:
-                        # 恢复之前目标位置
-                        orig = self._magnet_orig_geom
-                        if orig is not None and self._magnet_target is not None:
-                            animr = QPropertyAnimation(self._magnet_target, b'geometry', self)
-                            animr.setDuration(220)
-                            animr.setEasingCurve(QEasingCurve.Type.OutCubic)
-                            animr.setStartValue(self._magnet_target.geometry())
-                            animr.setEndValue(orig)
-                            animr.start()
-                            self._anims.append(animr)
-                    except Exception:
-                        pass
+                snap_pos = None
+                # 仅在左右边缘接近且垂直方向有重叠时才允许磁吸，避免上下误吸附
+                if overlap_y and dx <= self._magnet_threshold:
+                    snap_x = g2.left() - g1.width() if g1.center().x() < g2.center().x() else g2.right()
+                    snap_pos = QPoint(snap_x, g1.y())
 
-                # 设定当前磁吸目标并记录原始几何
-                if self._magnet_target is not nearest:
-                    self._magnet_target = nearest
-                    try:
-                        self._magnet_orig_geom = nearest.geometry()
-                    except Exception:
-                        self._magnet_orig_geom = nearest.geometry()
+                if snap_pos is not None:
+                    nearest = other
+                    nearest_snap = snap_pos
+                    break
 
-                # 目标向被拖拽项方向偏移一小段并做弹性缩放动画
-                try:
-                    tgt = self._magnet_target
-                    # 计算偏移：朝向 dragged center 的方向偏移 12px
-                    tcenter = tgt.pos() + QPoint(tgt.width()//2, tgt.height()//2)
-                    dir_vec = center - tcenter
-                    # normalize approx
-                    if dir_vec.manhattanLength() == 0:
-                        off = QPoint(0, 0)
-                    else:
-                        norm = dir_vec
-                        # scale to 12 px
-                        sign_x = 1 if norm.x() >= 0 else -1
-                        sign_y = 1 if norm.y() >= 0 else -1
-                        off = QPoint(int(sign_x * min(12, abs(norm.x()))), int(sign_y * min(12, abs(norm.y()))))
-
-                    dest_geom = QRect(self._magnet_orig_geom)
-                    dest_geom.translate(off)
-                    # 放大 8% 的目标几何
-                    grow_w = int(dest_geom.width() * 1.08)
-                    grow_h = int(dest_geom.height() * 1.08)
-                    dest_geom.setWidth(grow_w)
-                    dest_geom.setHeight(grow_h)
-
-                    anim = QPropertyAnimation(tgt, b'geometry', self)
-                    anim.setDuration(420)
-                    anim.setEasingCurve(QEasingCurve.Type.OutElastic)
-                    anim.setStartValue(tgt.geometry())
-                    anim.setEndValue(dest_geom)
-                    anim.start()
-                    self._anims.append(anim)
-                except Exception:
-                    pass
-
-                # 不进行列表重排，直接返回
-                return
+            if nearest is None:
+                # 离开吸附范围，取消候选
+                self._magnet_candidate = None
+                self._magnet_candidate_snap = None
+                self._magnet_timer.stop()
+                self._clear_magnet_style_on_all()
             else:
-                # 未接近任何目标：若存在之前的磁吸目标，则恢复其位置
-                if self._magnet_target is not None:
-                    try:
-                        orig = self._magnet_orig_geom
-                        if orig is not None:
-                            animr = QPropertyAnimation(self._magnet_target, b'geometry', self)
-                            animr.setDuration(200)
-                            animr.setEasingCurve(QEasingCurve.Type.OutCubic)
-                            animr.setStartValue(self._magnet_target.geometry())
-                            animr.setEndValue(orig)
-                            animr.start()
-                            self._anims.append(animr)
-                    except Exception:
-                        pass
-                    finally:
-                        self._magnet_target = None
-                        self._magnet_orig_geom = None
-
-            # 如果没有磁吸，按原来的重排逻辑（基于格子）
-            # 计算目标索引基于中心点落在哪个格子
-            center = cell.pos() + QPoint(cell.width()//2, cell.height()//2)
-            # determine cols from current grid positions
-            if not self.grid_positions:
-                return
-            cols = 1
-            first_y = self.grid_positions[0].y()
-            for p in self.grid_positions[1:]:
-                if p.y() == first_y:
-                    cols += 1
+                # 在范围内但需要停留一段时间才吸附
+                if self._magnet_candidate is not nearest or self._magnet_candidate_snap != nearest_snap:
+                    self._magnet_candidate = nearest
+                    self._magnet_candidate_snap = nearest_snap
+                    self._magnet_timer.start(self._magnet_delay_ms)
+                    # 预览样式：当前拖拽物与目标高亮
+                    self._clear_magnet_style_on_all()
+                    self._apply_magnet_style(cell, True, strong=False)
+                    self._apply_magnet_style(nearest, True, strong=False)
                 else:
-                    break
+                    # 若正在等待，保持计时
+                    if not self._magnet_timer.isActive():
+                        self._magnet_timer.start(self._magnet_delay_ms)
 
-            btn_w = self.btn_size
-            spacing = getattr(self, 'grid_spacing', 16)
+            # 2. 计算当前拖拽物中心点所在的“网格索引” (Grid Index)
+            # 这模拟了物理世界的占位逻辑
+            center_x = cw + cell.width() // 2
+            center_y = ch + cell.height() // 2
+            
             margin = getattr(self, 'grid_margin', 12)
-            col = int((center.x() - margin) / (btn_w + spacing))
-            row = int((center.y() - margin) / (cell.height() + spacing))
-            if col < 0: col = 0
-            target_idx = max(0, min(len(self.cells)-1, row * max(1, cols) + col))
+            spacing = getattr(self, 'grid_spacing', 16)
+            btn_size = getattr(self, 'btn_size', 112)
+            # 计算行高 (按钮高度 + 文字高度)
+            # 简单估算：btn_size + 30 (文字预留)
+            # 更精确的做法是获取 cell 的实际高度，这里取 cell.height() 近似
+            grid_h = cell.height() + spacing
+            grid_w = btn_size + spacing
 
-            # current index of dragged
-            cur_idx = None
-            for i, c in enumerate(self.cells):
-                if c is cell:
-                    cur_idx = i
-                    break
-            if cur_idx is None:
-                return
+            # 逆向计算行列
+            col = max(0, int((center_x - margin) / grid_w))
+            row = max(0, int((center_y - margin) / grid_h))
+            
+            # 计算当前布局有多少列
+            avail_w = max(200, self._content_widget.width())
+            cols_count = max(1, avail_w // grid_w)
+            
+            # 算出目标索引 (Target Index)
+            target_idx = row * cols_count + col
+            
+            # 索引边界限制
+            target_idx = max(0, min(target_idx, len(self.cells) - 1))
 
-            if target_idx != cur_idx:
-                # update order in-memory and animate others
-                self.cells.pop(cur_idx)
-                self.cells.insert(target_idx, cell)
-                # Animate all non-dragging cells to new grid positions
+            # 3. 碰撞检测与重排 (Collision & Reorder)
+            # 如果计算出的目标位置不是当前位置，说明发生了“碰撞/挤压”
+            if target_idx != self._drag_current_idx:
+                
+                # 在内存列表中移动元素：把拖拽物从旧位置拔出来，插到新位置
+                # 这就像挤公交车，一个人挤进去，后面所有人往后挪
+                cell_obj = self.cells.pop(self._drag_current_idx)
+                self.cells.insert(target_idx, cell_obj)
+                
+                # 更新当前索引
+                self._drag_current_idx = target_idx
+                
+                # 4. 触发物理动画：让除了被拖拽物之外的所有图标归位
                 for i, c in enumerate(self.cells):
-                    if c is cell:
-                        continue
+                    if c is self._dragging_cell:
+                        continue # 被拖拽物由鼠标控制，不参与自动归位
+                    
+                    # 获取该索引原本应该在的物理坐标
                     if i < len(self.grid_positions):
-                        dest = self.grid_positions[i]
+                        target_pos = self.grid_positions[i]
                     else:
-                        dest = QPoint(margin, margin)
-                    anim = QPropertyAnimation(c, b'pos', self)
-                    anim.setDuration(180)
-                    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-                    anim.setStartValue(c.pos())
-                    anim.setEndValue(dest)
-                    anim.start()
-                    # keep ref
-                    self._anims.append(anim)
-                # cleanup finished animations list periodically
+                        continue
+
+                    # 只有位置不对时才通过动画移动
+                    if c.pos() != target_pos:
+                        # 创建动画
+                        anim = QPropertyAnimation(c, b'pos', self)
+                        anim.setDuration(300) # 300ms 动画时长
+                        
+                        # 使用 OutBack 曲线模拟磁铁斥力/弹簧效果
+                        # 这种曲线会先冲过头一点点再弹回来，非常有物理感
+                        anim.setEasingCurve(QEasingCurve.Type.OutBack) 
+                        
+                        anim.setStartValue(c.pos())
+                        anim.setEndValue(target_pos)
+                        anim.start()
+                        
+                        # 存入动画池防止被垃圾回收
+                        self._anims.append(anim)
+                
+                # 清理已完成的动画
                 self._anims = [a for a in self._anims if a.state() == QPropertyAnimation.Running]
-        except Exception:
+
+        except Exception as e:
+            # print(e) 
             pass
 
+    def _confirm_magnet_candidate(self):
+        """计时结束后确认磁吸，避免误触发。"""
+        try:
+            cell = self._dragging_cell
+            other = self._magnet_candidate
+            snap_pos = self._magnet_candidate_snap
+            if not cell or not other or snap_pos is None:
+                return
+
+            # 再次验证仍在阈值内
+            g1 = cell.geometry()
+            g2 = other.geometry()
+            overlap_y = not (g1.bottom() < g2.top() or g2.bottom() < g1.top())
+            dx = min(abs(g1.right() - g2.left()), abs(g2.right() - g1.left()))
+            if not (overlap_y and dx <= self._magnet_threshold):
+                return
+
+            # 执行吸附
+            cell.move(snap_pos)
+            self._magnet_target = other
+            self._magnet_orig_geom = other.geometry()
+            self._magnet_offset = other.pos() - cell.pos()
+            other.move(cell.pos() + self._magnet_offset)
+            # 确认后加重高亮，提示已吸附（无需脉冲避免抖动）
+            self._apply_magnet_style(cell, True, strong=True)
+            self._apply_magnet_style(other, True, strong=True)
+        finally:
+            self._magnet_candidate = None
+            self._magnet_candidate_snap = None
+            self._magnet_timer.stop()
+
     def end_drag(self, cell, global_pos):
-        # 在释放时，把 cell 动画吸附到最终格子位置，并写回 apps 顺序
+        """结束拖拽：吸附归位并保存数据。"""
         try:
             if self._dragging_cell is not cell:
                 return
-            # 如果存在磁吸目标并且释放点仍在阈值内，则创建非破坏性组合
-            MAGNET_THRESHOLD = 80
-            created_combo = False
-            try:
-                if self._magnet_target is not None:
-                    # 计算两者中心距离
-                    dragged_center = cell.pos() + QPoint(cell.width()//2, cell.height()//2)
-                    tgt = self._magnet_target
-                    tgt_center = tgt.pos() + QPoint(tgt.width()//2, tgt.height()//2)
-                    d = (dragged_center - tgt_center).manhattanLength()
-                    if d <= MAGNET_THRESHOLD:
-                        # 创建组合：把被拖拽项与目标的成员合并（递归支持）
-                        try:
-                            # 查找 target index 在 apps 中的位置
-                            tgt_idx = None
-                            for j, a in enumerate(self.apps):
-                                # 匹配通过 name+path 或 combo 内容
-                                if a is tgt.app or (a.get('name') == tgt.app.get('name') and a.get('path') == tgt.app.get('path')):
-                                    tgt_idx = j
-                                    break
-                            # 构建成员列表
-                            members = []
-                            def add_members_from(app_obj):
-                                if app_obj.get('combo'):
-                                    for m in app_obj.get('combo'):
-                                        members.append(m)
-                                else:
-                                    members.append(app_obj)
+            
+            # 如果有磁吸目标，则把两者作为一组一起归位并更新顺序
+            if self._magnet_target:
+                # 生成组合应用 C
+                app_a = cell.app
+                app_b = self._magnet_target.app
+                members = self._flatten_combo_apps(app_a) + self._flatten_combo_apps(app_b)
+                # 组合名称：前两个名称 + “等N项”
+                names = []
+                for m in members[:2]:
+                    if isinstance(m, dict):
+                        names.append(m.get('name',''))
+                    else:
+                        names.append(str(m))
+                if len(members) > 2:
+                    combo_name = f"{' & '.join(names)} 等{len(members)}项"
+                else:
+                    combo_name = ' & '.join(names) if names else '组合'
 
-                            add_members_from(tgt.app)
-                            add_members_from(cell.app)
+                combo_app = {
+                    'name': combo_name or '组合',
+                    'combo': members,
+                    'icon': 'combo'
+                }
 
-                            # 生成显示名
-                            names = [m.get('name', m.get('path', '')) for m in members]
-                            combo_name = ' + '.join(names)
-                            new_app = {'name': combo_name, 'combo': members}
+                # 按落点索引插入新组合
+                margin = getattr(self, 'grid_margin', 12)
+                spacing = getattr(self, 'grid_spacing', 16)
+                btn_size = getattr(self, 'btn_size', 112)
+                grid_h = cell.height() + spacing
+                grid_w = btn_size + spacing
+                center_x = cell.x() + cell.width() // 2
+                center_y = cell.y() + cell.height() // 2
+                col = max(0, int((center_x - margin) / grid_w))
+                row = max(0, int((center_y - margin) / grid_h))
+                avail_w = max(200, self._content_widget.width())
+                cols_count = max(1, avail_w // grid_w)
+                target_idx = row * cols_count + col
+                target_idx = max(0, min(target_idx, len(self.cells) - 1))
 
-                            # 插入到 target 之后或末尾
-                            if tgt_idx is None:
-                                self.apps.append(new_app)
-                            else:
-                                self.apps.insert(tgt_idx + 1, new_app)
-                            try:
-                                self.save_config()
-                            except Exception:
-                                pass
-                            created_combo = True
-                        except Exception:
-                            created_combo = False
-            except Exception:
-                created_combo = False
-
-            # 恢复之前的磁吸目标位置
-            try:
-                if self._magnet_target is not None and self._magnet_orig_geom is not None:
-                    animr = QPropertyAnimation(self._magnet_target, b'geometry', self)
-                    animr.setDuration(180)
-                    animr.setEasingCurve(QEasingCurve.Type.OutCubic)
-                    animr.setStartValue(self._magnet_target.geometry())
-                    animr.setEndValue(self._magnet_orig_geom)
-                    animr.start()
-                    self._anims.append(animr)
-            except Exception:
-                pass
-            finally:
-                self._magnet_target = None
-                self._magnet_orig_geom = None
-
-            # 如果创建了组合，直接重建网格并退出，不对源项做移动
-            if created_combo:
-                try:
-                    self.rebuild_app_grid(self.search.text() if hasattr(self, 'search') else '')
-                except Exception:
-                    pass
-                self._dragging_cell = None
-                return
-
-            # 否则按原逻辑吸附到最终格子位置
-            final_idx = None
-            for i, c in enumerate(self.cells):
-                if c is cell:
-                    final_idx = i
-                    break
-            if final_idx is None:
-                return
-            if final_idx < len(self.grid_positions):
-                dest = self.grid_positions[final_idx]
-            else:
-                dest = QPoint(self.grid_margin, self.grid_margin)
-
-            anim = QPropertyAnimation(cell, b'pos', self)
-            anim.setDuration(220)
-            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-            anim.setStartValue(cell.pos())
-            anim.setEndValue(dest)
-            anim.start()
-            self._anims.append(anim)
-
-            # 更新 self.apps 顺序以持久化
-            try:
+                # 重建 apps：保留 A/B 原有按钮，再额外插入组合
                 new_apps = [c.app for c in self.cells]
+                target_idx = min(target_idx, len(new_apps))
+                new_apps.insert(target_idx, combo_app)
                 self.apps = new_apps
                 self.save_config()
-            except Exception:
-                pass
 
+                # 重置磁吸状态并重建网格以生成组合按钮
+                self._magnet_target = None
+                self._magnet_offset = QPoint(0, 0)
+                self._magnet_orig_geom = None
+                self._magnet_candidate = None
+                self._magnet_candidate_snap = None
+                self._magnet_timer.stop()
+                self.rebuild_app_grid(self.search.text() if hasattr(self, 'search') else '')
+                return
+            
+            # 1. 最终吸附动画 (Snap to Grid)
+            # 找到当前它在列表中的位置对应的物理坐标
+            final_idx = -1
+            if cell in self.cells:
+                final_idx = self.cells.index(cell)
+            
+            if final_idx != -1 and final_idx < len(self.grid_positions):
+                dest = self.grid_positions[final_idx]
+                
+                anim = QPropertyAnimation(cell, b'pos', self)
+                anim.setDuration(400)
+                # 结束时也用回弹效果，像磁铁吸附
+                anim.setEasingCurve(QEasingCurve.Type.OutBack)
+                anim.setStartValue(cell.pos())
+                anim.setEndValue(dest)
+                anim.start()
+                self._anims.append(anim)
+            
+            # 2. 同步数据结构 (self.apps) 并保存到文件
+            # 因为 self.cells 的顺序已经变了，我们需要根据 cell.app 更新 self.apps
+            new_apps_list = [c.app for c in self.cells]
+            self.apps = new_apps_list
+            self.save_config()
+            
+        except Exception as e:
+            print(f"End drag error: {e}")
+        finally:
             self._dragging_cell = None
-        except Exception:
-            pass
+            self._drag_current_idx = -1
+            self._magnet_candidate = None
+            self._magnet_candidate_snap = None
+            self._magnet_timer.stop()
 
     def _on_icon_loaded(self, path, icon):
         # 缓存并更新已注册的按钮
@@ -1528,6 +1779,7 @@ class IconLoader(QThread):
             self.icon_loaded.emit(self.path, icon)
         except Exception:
             pass
+
 
 if __name__ == '__main__':
     # C语言里的 main 函数入口
