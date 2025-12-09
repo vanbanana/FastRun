@@ -7,7 +7,7 @@ from functools import partial
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMenu, QPushButton, QVBoxLayout,
     QHBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QLineEdit, QGridLayout, QGraphicsOpacityEffect,
-    QDialog, QListWidget, QListWidgetItem
+    QDialog, QListWidget, QListWidgetItem, QFormLayout, QSpinBox
 )
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
 from PyQt6.QtCore import Qt, QPoint, QEvent, QSize, QTimer, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect, QSequentialAnimationGroup
@@ -640,6 +640,10 @@ class LauncherWindow(QWidget):
         self.loading_set = set()
         # keep threads references
         self._threads = []
+        # 设置存储路径
+        self.settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        # 先加载配置以便初始化 UI 使用
+        self.load_settings()
         self.init_ui()
 
     def init_ui(self):
@@ -668,11 +672,12 @@ class LauncherWindow(QWidget):
         title = QLabel('Launcher')
         title.setStyleSheet('font-weight:600;')
 
-        # 三个窗口控制按钮
+        # 三个窗口控制按钮 + 设置按钮
         btn_min = QPushButton('-')
         btn_max = QPushButton('□')
         btn_close = QPushButton('✕')
-        for b in (btn_min, btn_max, btn_close):
+        btn_setting = QPushButton('⚙')
+        for b in (btn_min, btn_max, btn_close, btn_setting):
             b.setFixedSize(26, 22)
             b.setFlat(True)
             b.setStyleSheet('QPushButton{border:none;background:transparent;} QPushButton:hover{background:#e6e6e6;border-radius:4px;}')
@@ -680,6 +685,7 @@ class LauncherWindow(QWidget):
         btn_min.clicked.connect(self.showMinimized)
         btn_max.clicked.connect(self.toggle_maximize)
         btn_close.clicked.connect(self.close)
+        btn_setting.clicked.connect(self.open_settings_dialog)
 
         # 布局：标题左侧，按钮放右侧
         top_container = QWidget(self.main_frame)
@@ -687,6 +693,7 @@ class LauncherWindow(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.addWidget(title)
         top_layout.addStretch()
+        top_layout.addWidget(btn_setting)
         top_layout.addWidget(btn_min)
         top_layout.addWidget(btn_max)
         top_layout.addWidget(btn_close)
@@ -1017,6 +1024,51 @@ class LauncherWindow(QWidget):
 
     def on_search_text_changed(self, text):
         self.rebuild_app_grid(text)
+
+    # --- 设置 ---
+    def open_settings_dialog(self):
+        dlg = SettingsDialog(
+            self,
+            btn_size=self.btn_size,
+            grid_spacing=self.grid_spacing,
+            grid_margin=self.grid_margin,
+            magnet_threshold=self._magnet_threshold,
+            magnet_delay=self._magnet_delay_ms,
+        )
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            values = dlg.values()
+            self.apply_settings(values)
+            try:
+                self.save_settings(values)
+            except Exception as e:
+                print(f"保存设置失败: {e}")
+            self.rebuild_app_grid(self.search.text() if hasattr(self, 'search') else '')
+
+    def apply_settings(self, cfg):
+        """应用设置到内存，不立即保存。"""
+        self.btn_size = cfg.get('btn_size', self.btn_size)
+        self.grid_spacing = cfg.get('grid_spacing', self.grid_spacing)
+        self.grid_margin = cfg.get('grid_margin', self.grid_margin)
+        self._magnet_threshold = cfg.get('magnet_threshold', self._magnet_threshold)
+        self._magnet_delay_ms = cfg.get('magnet_delay', self._magnet_delay_ms)
+
+    def load_settings(self):
+        """从 settings.json 读取个性化配置。"""
+        try:
+            if os.path.exists(self.settings_path):
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self.apply_settings(data)
+        except Exception:
+            pass
+
+    def save_settings(self, cfg):
+        try:
+            with open(self.settings_path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=4)
+        except Exception:
+            raise
 
     # --- 外部拖放添加应用 ---
     def dragEnterEvent(self, event):
@@ -1779,6 +1831,63 @@ class IconLoader(QThread):
             self.icon_loaded.emit(self.path, icon)
         except Exception:
             pass
+
+
+class SettingsDialog(QDialog):
+    """简单的个性化设置界面。"""
+    def __init__(self, parent, btn_size, grid_spacing, grid_margin, magnet_threshold, magnet_delay):
+        super().__init__(parent)
+        self.setWindowTitle('界面设置')
+        self.setMinimumWidth(320)
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.spin_btn = QSpinBox()
+        self.spin_btn.setRange(60, 160)
+        self.spin_btn.setValue(btn_size)
+
+        self.spin_spacing = QSpinBox()
+        self.spin_spacing.setRange(8, 48)
+        self.spin_spacing.setValue(grid_spacing)
+
+        self.spin_margin = QSpinBox()
+        self.spin_margin.setRange(0, 48)
+        self.spin_margin.setValue(grid_margin)
+
+        self.spin_mag = QSpinBox()
+        self.spin_mag.setRange(8, 80)
+        self.spin_mag.setValue(magnet_threshold)
+
+        self.spin_delay = QSpinBox()
+        self.spin_delay.setRange(80, 1200)
+        self.spin_delay.setSingleStep(20)
+        self.spin_delay.setValue(magnet_delay)
+
+        form.addRow('图标大小(px)', self.spin_btn)
+        form.addRow('网格间距(px)', self.spin_spacing)
+        form.addRow('网格边距(px)', self.spin_margin)
+        form.addRow('磁吸距离(px)', self.spin_mag)
+        form.addRow('磁吸延时(ms)', self.spin_delay)
+        layout.addLayout(form)
+
+        btns = QHBoxLayout()
+        ok = QPushButton('保存')
+        cancel = QPushButton('取消')
+        ok.clicked.connect(self.accept)
+        cancel.clicked.connect(self.reject)
+        btns.addStretch()
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        layout.addLayout(btns)
+
+    def values(self):
+        return {
+            'btn_size': self.spin_btn.value(),
+            'grid_spacing': self.spin_spacing.value(),
+            'grid_margin': self.spin_margin.value(),
+            'magnet_threshold': self.spin_mag.value(),
+            'magnet_delay': self.spin_delay.value(),
+        }
 
 
 if __name__ == '__main__':

@@ -5,13 +5,13 @@
         "icon": "D:/Thunder/Program/ThunderStart.exe"
     },
     {
-        "name": "oopz-runner",
-        "path": "D:\\oopz\\oopz-runner.exe",
-        "icon": "D:\\oopz\\oopz-runner.exe"
-    },
-    {
         "name": "DeviceDriver",
         "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
         "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+    },
+    {
+        "name": "oopz-runner",
+        "path": "D:\\oopz\\oopz-runner.exe",
+        "icon": "D:\\oopz\\oopz-runner.exe"
     }
 ]

@@ -1,7 +1,20 @@
 {
-    "btn_size": 121,
-    "grid_spacing": 29,
-    "grid_margin": 12,
-    "magnet_threshold": 32,
-    "magnet_delay": 260
+    "ball_size": 60,
+    "ball_opacity": 200,
+    "ball_color": [
+        66,
+        135,
+        245
+    ],
+    "launcher_icon_size": 131,
+    "launcher_grid_spacing": 32,
+    "launcher_grid_margin": 12,
+    "launcher_bg_color": [
+        255,
+        255,
+        255
+    ],
+    "launcher_opacity": 255,
+    "launcher_corner_radius": 26,
+    "search_style": "阴影"
 }
