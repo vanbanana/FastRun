@@ -7,11 +7,11 @@ from functools import partial
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QMenu, QPushButton, QVBoxLayout,
     QHBoxLayout, QLabel, QScrollArea, QFrame, QSizePolicy, QLineEdit, QGridLayout, QGraphicsOpacityEffect,
-    QDialog, QListWidget, QListWidgetItem, QFormLayout, QSpinBox
+    QDialog, QListWidget, QListWidgetItem, QFormLayout, QSpinBox, QSlider, QCheckBox
 )
 from PyQt6.QtWidgets import QFileDialog, QMessageBox, QInputDialog
-from PyQt6.QtCore import Qt, QPoint, QEvent, QSize, QTimer, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect, QSequentialAnimationGroup
-from PyQt6.QtGui import QPainter, QColor, QBrush, QIcon, QPixmap, QDrag, QPen
+from PyQt6.QtCore import Qt, QPoint, QPointF, QEvent, QSize, QTimer, QMimeData, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QRect, QSequentialAnimationGroup
+from PyQt6.QtGui import QPainter, QColor, QBrush, QIcon, QPixmap, QDrag, QPen, QLinearGradient, QRadialGradient
 from PyQt6.QtCore import pyqtSignal, QThread
 from PyQt6.QtWidgets import QFileIconProvider
 from PyQt6.QtCore import QFileInfo
@@ -22,7 +22,47 @@ import urllib.parse
 import hashlib
 import urllib.request
 import ssl
-from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtGui import QFontMetrics, QFont
+
+# ========== FastRun UI 设计系统 ==========
+# 苹果风格配色方案
+class FastRunColors:
+    # 主色调 - 系统蓝
+    PRIMARY = QColor(0, 122, 255)  # iOS Blue
+    PRIMARY_DARK = QColor(0, 98, 204)
+    PRIMARY_LIGHT = QColor(52, 142, 255)
+    
+    # 背景色
+    BG_PRIMARY = QColor(242, 242, 247)  # iOS System Gray 6
+    BG_SECONDARY = QColor(255, 255, 255)  # White
+    BG_TERTIARY = QColor(247, 247, 250)  # iOS System Gray 5
+    
+    # 文本色
+    TEXT_PRIMARY = QColor(0, 0, 0)
+    TEXT_SECONDARY = QColor(60, 60, 67, 153)  # 60% opacity
+    TEXT_TERTIARY = QColor(60, 60, 67, 102)  # 40% opacity
+    
+    # 分隔线
+    SEPARATOR = QColor(60, 60, 67, 29)  # 11.5% opacity
+    
+    # 悬浮球颜色（渐变）
+    FLOATING_BALL_START = QColor(0, 122, 255)
+    FLOATING_BALL_END = QColor(88, 86, 214)
+    
+    # 阴影
+    SHADOW_COLOR = QColor(0, 0, 0, 25)  # 10% opacity
+    
+    # 成功/警告/错误
+    SUCCESS = QColor(52, 199, 89)
+    WARNING = QColor(255, 149, 0)
+    ERROR = QColor(255, 59, 48)
+
+# 动画时长常量
+class FastRunTiming:
+    FAST = 200
+    NORMAL = 300
+    SLOW = 400
+    ELASTIC = 500
 
 # Windows Shell constants
 SHGFI_ICON = 0x000000100
@@ -344,13 +384,17 @@ class FloatingBall(QWidget):
         # apps 列表会在 init_ui 之前通过 load_config 加载
         self.apps = []
         self.load_config()
+        self.load_auto_dock_settings()
         self.init_ui()
         # icon cache shared across launcher windows
         self._global_icon_cache = {}
+        # 启动自动停靠计时器
+        if self._auto_dock_enabled and not self._is_docked:
+            self._auto_dock_timer.start(self._auto_dock_delay * 1000)
 
     def init_ui(self):
-        # 1. 设置窗口大小
-        self.setFixedSize(60, 60)
+        # 1. 设置窗口大小（竖着的圆角长方形）
+        self.setFixedSize(50, 80)
 
         # 2. 去掉标题栏和边框 (Frameless)
         # 这里的 WindowStaysOnTopHint 让它永远置顶
@@ -365,6 +409,25 @@ class FloatingBall(QWidget):
 
         # 用于记录鼠标拖拽的偏移量
         self.drag_pos = QPoint()
+        # 边缘停靠阈值（增大以更容易吸附）
+        self._edge_snap_threshold = 120
+        # 记录原始大小和是否已停靠
+        self._original_size = QSize(50, 80)
+        self._is_docked = False
+        self._docked_edge = None  # 记录当前停靠的边缘：'left' 或 'right'
+        # 自动停靠相关
+        self._auto_dock_enabled = True
+        self._auto_dock_delay = 10  # 秒
+        self._last_interaction_time = None
+        self._auto_dock_timer = QTimer(self)
+        self._auto_dock_timer.setSingleShot(True)
+        self._auto_dock_timer.timeout.connect(self._auto_dock_to_edge)
+
+        # 4. 设置初始位置：右下角偏上
+        screen_geom = QApplication.primaryScreen().availableGeometry()
+        x = screen_geom.right() - self.width() - 20  # 距离右边缘20px
+        y = screen_geom.bottom() - self.height() - 100  # 距离底部100px（偏上）
+        self.move(x, y)
 
         # 显示窗口
         self.show()
@@ -372,39 +435,92 @@ class FloatingBall(QWidget):
     # --- 绘制部分 (类似 HTML5 Canvas) ---
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing) # 抗锯齿，让圆滑一点
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-        # 设置画刷颜色 (这里用的是半透明的蓝色)
-        # QColor(R, G, B, Alpha) -> Alpha 200 代表 80% 不透明
-        painter.setBrush(QBrush(QColor(66, 135, 245, 200))) 
-        
-        # 去掉边线
+        rect = self.rect()
+        # 绘制阴影（在背景上）
+        shadow_rect = rect.adjusted(0, 2, 0, 4)
+        center_point = shadow_rect.center()
+        shadow_gradient = QRadialGradient(QPointF(center_point.x(), center_point.y()), shadow_rect.width() // 2)
+        shadow_gradient.setColorAt(0, FastRunColors.SHADOW_COLOR)
+        shadow_gradient.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.setBrush(QBrush(shadow_gradient))
         painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(shadow_rect, 14, 14)
         
-        # 画圆 (在 0,0 位置，宽60，高60)
-        painter.drawEllipse(0, 0, 60, 60)
+        # 绘制主背景（渐变）
+        top_left = rect.topLeft()
+        bottom_left = rect.bottomLeft()
+        gradient = QLinearGradient(QPointF(top_left.x(), top_left.y()), QPointF(bottom_left.x(), bottom_left.y()))
+        gradient.setColorAt(0, FastRunColors.FLOATING_BALL_START)
+        gradient.setColorAt(1, FastRunColors.FLOATING_BALL_END)
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(rect, 14, 14)
+        
+        # 添加高光效果（顶部）
+        highlight_rect = QRect(rect.x(), rect.y(), rect.width(), rect.height() // 3)
+        hl_top_left = highlight_rect.topLeft()
+        hl_bottom_left = highlight_rect.bottomLeft()
+        highlight_gradient = QLinearGradient(QPointF(hl_top_left.x(), hl_top_left.y()), QPointF(hl_bottom_left.x(), hl_bottom_left.y()))
+        highlight_gradient.setColorAt(0, QColor(255, 255, 255, 40))
+        highlight_gradient.setColorAt(1, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(highlight_gradient))
+        painter.drawRoundedRect(highlight_rect, 14, 14)
 
     # --- 鼠标事件处理 (核心交互逻辑) ---
     def mousePressEvent(self, event):
         # 区分左键与右键：
         if event.button() == Qt.MouseButton.LeftButton:
+            # 如果已停靠，先恢复原始大小以便拖拽
+            if self._is_docked:
+                window_geom = self.geometry()
+                self.setFixedSize(self._original_size.width(), self._original_size.height())
+                # 保持中心位置不变，恢复大小
+                center_x = window_geom.center().x()
+                center_y = window_geom.center().y()
+                new_x = center_x - self._original_size.width() // 2
+                new_y = center_y - self._original_size.height() // 2
+                self.move(new_x, new_y)
+                self._is_docked = False
+                self._docked_edge = None
+            
             # 左键按下：记录用于拖拽的偏差，同时记录按下位置以便判断是拖拽还是单击
             self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             # 记录按下的全局位置与按键，用于在释放时判定是否为点击
             self._press_pos = event.globalPosition().toPoint()
             self._press_button = event.button()
             self._moved = False
+            # 重置自动停靠计时器
+            self._reset_auto_dock_timer()
             event.accept()
 
         elif event.button() == Qt.MouseButton.RightButton:
-            # 右键：弹出带样式的菜单，菜单项为“退出程序”
+            # 右键：弹出带样式的菜单，菜单项为"退出程序"
             menu = QMenu(self)
-            # 增大菜单最小宽度以便显示更长的文字
-            menu.setStyleSheet(
-                "QMenu { min-width: 220px; background-color: white; color: black; border: 1px solid #ccc; }"
-                "QMenu::item:selected { background-color: #e6e6e6; }"
-            )
-            menu.addAction('退出程序', lambda: QApplication.instance().quit())
+            # 苹果风格菜单样式
+            menu.setStyleSheet(f"""
+                QMenu {{
+                    background-color: rgba(255, 255, 255, 0.95);
+                    border: none;
+                    border-radius: 10px;
+                    padding: 6px;
+                    min-width: 40px;
+                    font-size: 14px;
+                    color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+                }}
+                QMenu::item {{
+                    padding: 8px 16px;
+                    border-radius: 6px;
+                    margin: 2px;
+                }}
+                QMenu::item:selected {{
+                    background-color: rgba({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()}, 0.1);
+                    color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                }}
+            """)
+            menu.addAction('退出 FastRun', lambda: QApplication.instance().quit())
             # 在鼠标的全局位置显示菜单
             menu.exec(event.globalPosition().toPoint())
             event.accept()
@@ -424,6 +540,8 @@ class FloatingBall(QWidget):
                     within_click_distance = delta.manhattanLength() <= QApplication.startDragDistance()
 
                 if (not moved_flag) and is_same_button and within_click_distance:
+                    # 重置自动停靠计时器
+                    self._reset_auto_dock_timer()
                     launcher = LauncherWindow(self.apps, launcher_callback=self.launch_app)
                     launcher.show()
                     # 延迟居中与首次布局，等待 Qt 完成初始布局计算
@@ -444,6 +562,9 @@ class FloatingBall(QWidget):
             except Exception as e:
                 print(f"打开启动器窗口失败: {e}")
             finally:
+                # 如果移动了，检查边缘停靠
+                if getattr(self, '_moved', False):
+                    self._snap_to_edge()
                 # 清理按下标记
                 self._press_pos = None
                 self._press_button = None
@@ -459,7 +580,311 @@ class FloatingBall(QWidget):
                     self._moved = True
             # 移动窗口：新的屏幕坐标 - 之前的偏移量
             self.move(event.globalPosition().toPoint() - self.drag_pos)
+            # 重置自动停靠计时器
+            self._reset_auto_dock_timer()
             event.accept()
+
+    def enterEvent(self, event):
+        """鼠标进入事件：如果已停靠，恢复原始大小。"""
+        if self._is_docked:
+            window_geom = self.geometry()
+            screen_geom = QApplication.primaryScreen().availableGeometry()
+            
+            # 计算恢复后的位置（保持边缘对齐）
+            new_width = self._original_size.width()
+            new_height = self._original_size.height()
+            
+            # 根据当前停靠边缘调整位置（只处理左右边缘）
+            new_x = window_geom.x()
+            new_y = window_geom.y()  # Y坐标保持不变
+            
+            # 检测停靠边缘（只检测左右）
+            dock_edge = getattr(self, '_docked_edge', None)
+            if not dock_edge:
+                # 如果没有记录，通过位置判断
+                if window_geom.left() <= screen_geom.left() + 5:
+                    dock_edge = 'left'
+                elif window_geom.right() >= screen_geom.right() - 5:
+                    dock_edge = 'right'
+            
+            if dock_edge == 'left':
+                new_x = screen_geom.left()
+            elif dock_edge == 'right':
+                new_x = screen_geom.right() - new_width
+            
+            # 确保Y坐标在屏幕范围内
+            new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - new_height))
+            
+            # 取消固定大小限制
+            self.setFixedSize(self._original_size.width(), self._original_size.height())
+            
+            # 创建流畅动画恢复大小
+            anim = QPropertyAnimation(self, b'geometry', self)
+            anim.setDuration(FastRunTiming.NORMAL)
+            anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            anim.setStartValue(window_geom)
+            anim.setEndValue(QRect(new_x, new_y, new_width, new_height))
+            anim.finished.connect(lambda: self.setFixedSize(new_width, new_height))
+            anim.start()
+            
+            self._is_docked = False
+            self._docked_edge = None
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        """鼠标离开事件：如果之前是停靠状态，恢复缩小。"""
+        # 延迟检查，避免快速进出导致闪烁
+        QTimer.singleShot(100, self._check_restore_dock)
+        super().leaveEvent(event)
+
+    def _check_restore_dock(self):
+        """检查是否需要恢复停靠状态（只支持左右停靠）。"""
+        if not self._is_docked:
+            # 检查是否仍在边缘附近
+            screen_geom = QApplication.primaryScreen().availableGeometry()
+            window_geom = self.geometry()
+            threshold = self._edge_snap_threshold
+            
+            # 只检测左右边缘
+            is_near_edge = False
+            dock_edge = None
+            
+            if window_geom.left() <= screen_geom.left() + threshold:
+                is_near_edge = True
+                dock_edge = 'left'
+            elif window_geom.right() >= screen_geom.right() - threshold:
+                is_near_edge = True
+                dock_edge = 'right'
+            
+            if is_near_edge and dock_edge:
+                # 恢复停靠缩小状态
+                new_width = self._original_size.width() // 2
+                new_height = self._original_size.height()
+                
+                new_x = window_geom.x()
+                new_y = window_geom.y()  # Y坐标保持不变
+                
+                if dock_edge == 'left':
+                    new_x = screen_geom.left()
+                elif dock_edge == 'right':
+                    new_x = screen_geom.right() - new_width
+                
+                # 确保Y坐标在屏幕范围内
+                new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - new_height))
+                
+                self.setFixedSize(self._original_size.width(), self._original_size.height())
+                
+                anim = QPropertyAnimation(self, b'geometry', self)
+                anim.setDuration(FastRunTiming.NORMAL)
+                anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                anim.setStartValue(window_geom)
+                anim.setEndValue(QRect(new_x, new_y, new_width, new_height))
+                anim.finished.connect(lambda: self.setFixedSize(new_width, new_height))
+                anim.start()
+                
+                self._is_docked = True
+                self._docked_edge = dock_edge
+
+    def _snap_to_edge(self):
+        """边缘停靠逻辑：只支持左右两侧停靠，检测窗口是否靠近屏幕边缘，如果是则自动吸附并缩小。"""
+        try:
+            screen_geom = QApplication.primaryScreen().availableGeometry()
+            window_geom = self.geometry()
+            threshold = self._edge_snap_threshold
+            
+            new_x = window_geom.x()
+            new_y = window_geom.y()  # Y坐标保持不变
+            will_dock = False
+            dock_edge = None  # 只支持 'left' 或 'right'
+            
+            # 只检测左右边缘
+            dist_to_left = window_geom.left() - screen_geom.left()
+            dist_to_right = screen_geom.right() - window_geom.right()
+            
+            # 检测左边缘
+            if dist_to_left <= threshold:
+                new_x = screen_geom.left()
+                will_dock = True
+                dock_edge = 'left'
+            # 检测右边缘
+            elif dist_to_right <= threshold:
+                new_x = screen_geom.right() - window_geom.width()
+                will_dock = True
+                dock_edge = 'right'
+            
+            # 如果检测到需要停靠
+            if will_dock and not self._is_docked:
+                # 停靠：只缩小宽度到一半，高度不变，Y坐标保持当前位置
+                new_width = self._original_size.width() // 2
+                new_height = self._original_size.height()
+                
+                # 根据停靠边缘调整X位置，Y坐标保持不变
+                if dock_edge == 'left':
+                    new_x = screen_geom.left()
+                elif dock_edge == 'right':
+                    new_x = screen_geom.right() - new_width
+                
+                # 确保Y坐标在屏幕范围内
+                new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - new_height))
+                
+                # 取消固定大小限制，允许动画改变大小
+                self.setFixedSize(self._original_size.width(), self._original_size.height())
+                
+                # 创建动画：移动到边缘并缩小（使用更流畅的动画曲线）
+                anim = QPropertyAnimation(self, b'geometry', self)
+                anim.setDuration(FastRunTiming.NORMAL)  # 使用NORMAL时长，更流畅
+                # 使用OutCubic曲线，更流畅自然
+                anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                anim.setStartValue(window_geom)
+                anim.setEndValue(QRect(new_x, new_y, new_width, new_height))
+                anim.finished.connect(lambda: self.setFixedSize(new_width, new_height))
+                anim.start()
+                
+                self._is_docked = True
+                self._docked_edge = dock_edge  # 记录停靠边缘
+                # 停靠后停止自动停靠计时器
+                self._auto_dock_timer.stop()
+            # 如果已经停靠但离开了边缘，恢复原始大小
+            elif not will_dock and self._is_docked:
+                # 恢复原始大小
+                self.setFixedSize(self._original_size.width(), self._original_size.height())
+                
+                # 创建动画：恢复原始大小（流畅动画）
+                anim = QPropertyAnimation(self, b'geometry', self)
+                anim.setDuration(FastRunTiming.NORMAL)
+                anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                anim.setStartValue(window_geom)
+                # 保持Y坐标不变，只改变X和大小
+                center_y = window_geom.center().y()
+                new_x = window_geom.center().x() - self._original_size.width() // 2
+                new_y = center_y - self._original_size.height() // 2
+                # 确保新位置在屏幕范围内
+                new_x = max(screen_geom.left(), min(new_x, screen_geom.right() - self._original_size.width()))
+                new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - self._original_size.height()))
+                anim.setEndValue(QRect(new_x, new_y, self._original_size.width(), self._original_size.height()))
+                anim.finished.connect(lambda: self.setFixedSize(self._original_size.width(), self._original_size.height()))
+                anim.start()
+                
+                self._is_docked = False
+                self._docked_edge = None
+                # 离开停靠状态后，如果启用了自动停靠，重新启动计时器
+                if self._auto_dock_enabled:
+                    self._auto_dock_timer.start(self._auto_dock_delay * 1000)
+            # 如果只是位置变化（已在停靠状态），只移动位置
+            elif will_dock and self._is_docked:
+                current_size = window_geom.size()
+                current_docked_edge = getattr(self, '_docked_edge', None)
+                
+                # 如果边缘发生变化（从左到右或从右到左），需要重新停靠
+                if dock_edge != current_docked_edge:
+                    # 先恢复大小，然后重新停靠到新边缘
+                    new_width = self._original_size.width() // 2
+                    new_height = self._original_size.height()
+                    
+                    if dock_edge == 'left':
+                        new_x = screen_geom.left()
+                    elif dock_edge == 'right':
+                        new_x = screen_geom.right() - new_width
+                    
+                    # 确保Y坐标在屏幕范围内
+                    new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - new_height))
+                    
+                    # 取消固定大小限制
+                    self.setFixedSize(self._original_size.width(), self._original_size.height())
+                    
+                    # 创建动画：移动到新边缘并保持缩小状态
+                    anim = QPropertyAnimation(self, b'geometry', self)
+                    anim.setDuration(FastRunTiming.NORMAL)
+                    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                    anim.setStartValue(window_geom)
+                    anim.setEndValue(QRect(new_x, new_y, new_width, new_height))
+                    anim.finished.connect(lambda: self.setFixedSize(new_width, new_height))
+                    anim.start()
+                    
+                    self._docked_edge = dock_edge
+                else:
+                    # 边缘没变，只调整位置（Y坐标可能变化）
+                    if dock_edge == 'left':
+                        new_x = screen_geom.left()
+                    elif dock_edge == 'right':
+                        new_x = screen_geom.right() - current_size.width()
+                    
+                    # 确保Y坐标在屏幕范围内
+                    new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - current_size.height()))
+                    
+                    if new_x != window_geom.x() or new_y != window_geom.y():
+                        anim = QPropertyAnimation(self, b'geometry', self)
+                        anim.setDuration(200)
+                        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                        anim.setStartValue(window_geom)
+                        anim.setEndValue(QRect(new_x, new_y, current_size.width(), current_size.height()))
+                        anim.start()
+        except Exception as e:
+            print(f"边缘停靠失败: {e}")
+
+    def _reset_auto_dock_timer(self):
+        """重置自动停靠计时器。"""
+        if self._auto_dock_enabled and not self._is_docked:
+            self._auto_dock_timer.stop()
+            self._auto_dock_timer.start(self._auto_dock_delay * 1000)
+
+    def _auto_dock_to_edge(self):
+        """自动停靠到最近的左右边缘（只支持左右停靠）。"""
+        if not self._auto_dock_enabled or self._is_docked:
+            return
+        try:
+            screen_geom = QApplication.primaryScreen().availableGeometry()
+            window_geom = self.geometry()
+            
+            # 只计算到左右边缘的距离
+            dist_left = window_geom.left() - screen_geom.left()
+            dist_right = screen_geom.right() - window_geom.right()
+            
+            # 找到最近的左右边缘
+            new_x = window_geom.x()
+            new_y = window_geom.y()  # Y坐标保持不变
+            dock_edge = None
+            
+            if dist_left <= dist_right:
+                new_x = screen_geom.left()
+                dock_edge = 'left'
+            else:
+                new_x = screen_geom.right() - window_geom.width()
+                dock_edge = 'right'
+            
+            # 执行停靠
+            if dock_edge:
+                # 停靠：只缩小宽度到一半，高度不变
+                new_width = self._original_size.width() // 2
+                new_height = self._original_size.height()
+                
+                # 根据停靠边缘调整X位置，Y坐标保持不变
+                if dock_edge == 'left':
+                    new_x = screen_geom.left()
+                elif dock_edge == 'right':
+                    new_x = screen_geom.right() - new_width
+                
+                # 确保Y坐标在屏幕范围内
+                new_y = max(screen_geom.top(), min(new_y, screen_geom.bottom() - new_height))
+                
+                # 取消固定大小限制
+                self.setFixedSize(self._original_size.width(), self._original_size.height())
+                
+                # 创建动画：移动到边缘并缩小（流畅动画）
+                anim = QPropertyAnimation(self, b'geometry', self)
+                anim.setDuration(FastRunTiming.NORMAL)
+                anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                anim.setStartValue(window_geom)
+                anim.setEndValue(QRect(new_x, new_y, new_width, new_height))
+                anim.finished.connect(lambda: self.setFixedSize(new_width, new_height))
+                anim.start()
+                
+                self._is_docked = True
+                self._docked_edge = dock_edge  # 记录停靠边缘
+                # 停靠后停止自动停靠计时器
+                self._auto_dock_timer.stop()
+        except Exception as e:
+            print(f"自动停靠失败: {e}")
             
     def launch_app(self, path):
         """非阻塞启动外部程序（Windows 可执行文件）。
@@ -517,6 +942,19 @@ class FloatingBall(QWidget):
         except Exception as e:
             print(f"读取 apps.json 时发生错误: {e}")
 
+    def load_auto_dock_settings(self):
+        """从 settings.json 读取自动停靠设置。"""
+        settings_path = os.path.join(os.path.dirname(__file__), 'settings.json')
+        try:
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self._auto_dock_enabled = data.get('auto_dock_enabled', True)
+                        self._auto_dock_delay = data.get('auto_dock_delay', 10)
+        except Exception:
+            pass
+
 
 class DragButton(QPushButton):
     """支持拖拽启动的按钮，拖动时会把关联的 path 作为 MIME 文本传出。"""
@@ -552,7 +990,22 @@ class AppCell(QWidget):
         self.btn = DragButton(drag_data=app.get('path',''))
         self.btn.setFixedSize(btn_size, btn_size)
         self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn.setStyleSheet('QPushButton{border-radius:12px;border:1px solid #ddd;background:#fff;} QPushButton:hover{background:#f5f5f5;}')
+        self.btn.setStyleSheet(f"""
+            QPushButton {{
+                border-radius: 18px;
+                border: none;
+                background: rgba(255, 255, 255, 0.9);
+                padding: 0px;
+            }}
+            QPushButton:hover {{
+                background: rgba(255, 255, 255, 1.0);
+                transform: scale(1.05);
+            }}
+            QPushButton:pressed {{
+                background: rgba(242, 242, 247, 1.0);
+                transform: scale(0.95);
+            }}
+        """)
         layout.addWidget(self.btn, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         lbl = QLabel()
@@ -655,10 +1108,16 @@ class LauncherWindow(QWidget):
         screen_geom = QApplication.primaryScreen().availableGeometry()
         self.setMaximumSize(int(screen_geom.width() * 0.9), int(screen_geom.height() * 0.9))
 
-        # 主容器，使用样式化圆角白色背景，通过布局自适应内容
+        # 主容器，使用苹果风格毛玻璃效果
         self.main_frame = QFrame(self)
         self.main_frame.setObjectName('main_frame')
-        self.main_frame.setStyleSheet('#main_frame { background: white; border-radius: 12px; }')
+        self.main_frame.setStyleSheet(f"""
+            #main_frame {{
+                background: rgba(255, 255, 255, 0.95);
+                border-radius: 20px;
+                border: 1px solid rgba(0, 0, 0, 0.1);
+            }}
+        """)
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
@@ -669,18 +1128,45 @@ class LauncherWindow(QWidget):
         frame_layout.setSpacing(8)
 
         # 顶部栏（用于拖动和放置窗口按钮）
-        title = QLabel('Launcher')
-        title.setStyleSheet('font-weight:600;')
+        title = QLabel('FastRun')
+        title_font = QFont('SF Pro Display', 18, QFont.Weight.DemiBold)
+        title.setFont(title_font)
+        title.setStyleSheet(f'color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});')
 
-        # 三个窗口控制按钮 + 设置按钮
-        btn_min = QPushButton('-')
+        # 三个窗口控制按钮 + 设置按钮（苹果风格）
+        btn_min = QPushButton('−')
         btn_max = QPushButton('□')
         btn_close = QPushButton('✕')
         btn_setting = QPushButton('⚙')
         for b in (btn_min, btn_max, btn_close, btn_setting):
-            b.setFixedSize(26, 22)
+            b.setFixedSize(28, 28)
             b.setFlat(True)
-            b.setStyleSheet('QPushButton{border:none;background:transparent;} QPushButton:hover{background:#e6e6e6;border-radius:4px;}')
+            font = QFont('SF Pro Display', 14)
+            b.setFont(font)
+            if b == btn_close:
+                b.setStyleSheet(f"""
+                    QPushButton {{
+                        border: none;
+                        background: transparent;
+                        color: rgb({FastRunColors.ERROR.red()}, {FastRunColors.ERROR.green()}, {FastRunColors.ERROR.blue()});
+                        border-radius: 14px;
+                    }}
+                    QPushButton:hover {{
+                        background: rgba({FastRunColors.ERROR.red()}, {FastRunColors.ERROR.green()}, {FastRunColors.ERROR.blue()}, 0.2);
+                    }}
+                """)
+            else:
+                b.setStyleSheet(f"""
+                    QPushButton {{
+                        border: none;
+                        background: transparent;
+                        color: rgb({FastRunColors.TEXT_SECONDARY.red()}, {FastRunColors.TEXT_SECONDARY.green()}, {FastRunColors.TEXT_SECONDARY.blue()});
+                        border-radius: 14px;
+                    }}
+                    QPushButton:hover {{
+                        background: rgba(0, 0, 0, 0.08);
+                    }}
+                """)
 
         btn_min.clicked.connect(self.showMinimized)
         btn_max.clicked.connect(self.toggle_maximize)
@@ -701,9 +1187,25 @@ class LauncherWindow(QWidget):
         # 仅在顶栏生效的拖拽，通过事件过滤器实现
         top_container.installEventFilter(self)
 
-        # 搜索框（用于动态过滤）
+        # 搜索框（用于动态过滤）- 苹果风格
         self.search = QLineEdit(self.main_frame)
         self.search.setPlaceholderText('搜索应用...')
+        self.search.setFixedHeight(36)
+        search_font = QFont('SF Pro Text', 14)
+        self.search.setFont(search_font)
+        self.search.setStyleSheet(f"""
+            QLineEdit {{
+                background: rgba(242, 242, 247, 0.6);
+                border: none;
+                border-radius: 10px;
+                padding: 8px 16px;
+                color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+            }}
+            QLineEdit:focus {{
+                background: rgba(255, 255, 255, 0.9);
+                border: 2px solid rgba({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()}, 0.3);
+            }}
+        """)
         self.search.textChanged.connect(self.on_search_text_changed)
         frame_layout.addWidget(self.search)
 
@@ -974,7 +1476,21 @@ class LauncherWindow(QWidget):
         add_btn.setToolTip('添加应用')
         add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         add_btn.setText('+')
-        add_btn.setStyleSheet('QPushButton{border-radius:12px;border:1px dashed #bbb;background:#fff;font-size:24px;} QPushButton:hover{background:#f5f5f5;}')
+        add_font = QFont('SF Pro Display', 28, QFont.Weight.Light)
+        add_btn.setFont(add_font)
+        add_btn.setStyleSheet(f"""
+            QPushButton {{
+                border-radius: 18px;
+                border: 2px dashed rgba({FastRunColors.TEXT_TERTIARY.red()}, {FastRunColors.TEXT_TERTIARY.green()}, {FastRunColors.TEXT_TERTIARY.blue()}, 0.4);
+                background: rgba(242, 242, 247, 0.5);
+                color: rgb({FastRunColors.TEXT_SECONDARY.red()}, {FastRunColors.TEXT_SECONDARY.green()}, {FastRunColors.TEXT_SECONDARY.blue()});
+            }}
+            QPushButton:hover {{
+                background: rgba(242, 242, 247, 0.8);
+                border-color: rgba({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()}, 0.5);
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+            }}
+        """)
         add_btn.clicked.connect(self.add_app_via_dialog)
         # label 下方
         add_cell = QWidget(self._content_widget)
@@ -1027,6 +1543,19 @@ class LauncherWindow(QWidget):
 
     # --- 设置 ---
     def open_settings_dialog(self):
+        # 读取自动停靠设置
+        auto_dock_enabled = True
+        auto_dock_delay = 10
+        try:
+            if os.path.exists(self.settings_path):
+                with open(self.settings_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        auto_dock_enabled = data.get('auto_dock_enabled', True)
+                        auto_dock_delay = data.get('auto_dock_delay', 10)
+        except Exception:
+            pass
+        
         dlg = SettingsDialog(
             self,
             btn_size=self.btn_size,
@@ -1034,6 +1563,8 @@ class LauncherWindow(QWidget):
             grid_margin=self.grid_margin,
             magnet_threshold=self._magnet_threshold,
             magnet_delay=self._magnet_delay_ms,
+            auto_dock_enabled=auto_dock_enabled,
+            auto_dock_delay=auto_dock_delay,
         )
         if dlg.exec() == QDialog.DialogCode.Accepted:
             values = dlg.values()
@@ -1177,8 +1708,39 @@ class LauncherWindow(QWidget):
 
     def on_app_context_menu(self, app, btn, pos):
         menu = QMenu(self)
+        # 苹果风格菜单样式
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background-color: rgba(255, 255, 255, 0.98);
+                border: none;
+                border-radius: 12px;
+                padding: 8px;
+                min-width: 160px;
+                font-size: 14px;
+                color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+            }}
+            QMenu::item {{
+                padding: 10px 16px;
+                border-radius: 8px;
+                margin: 2px;
+            }}
+            QMenu::item:selected {{
+                background-color: rgba({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()}, 0.1);
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+            }}
+            QMenu::separator {{
+                height: 1px;
+                background: rgba({FastRunColors.SEPARATOR.red()}, {FastRunColors.SEPARATOR.green()}, {FastRunColors.SEPARATOR.blue()}, {FastRunColors.SEPARATOR.alpha() / 255.0});
+                margin: 6px 8px;
+            }}
+        """)
         menu.addAction('重命名', lambda: self.rename_app(app))
-        menu.addAction('删除', lambda: self.delete_app(app))
+        delete_action = menu.addAction('删除', lambda: self.delete_app(app))
+        delete_action.setStyleSheet(f"""
+            QAction {{
+                color: rgb({FastRunColors.ERROR.red()}, {FastRunColors.ERROR.green()}, {FastRunColors.ERROR.blue()});
+            }}
+        """)
         
         # 如果是组合应用，提供解散选项
         if app.get('combo'):
@@ -1606,13 +2168,15 @@ class LauncherWindow(QWidget):
 
                     # 只有位置不对时才通过动画移动
                     if c.pos() != target_pos:
-                        # 创建动画
+                        # 创建动画（弹性效果）
                         anim = QPropertyAnimation(c, b'pos', self)
-                        anim.setDuration(300) # 300ms 动画时长
+                        anim.setDuration(FastRunTiming.NORMAL)
                         
-                        # 使用 OutBack 曲线模拟磁铁斥力/弹簧效果
-                        # 这种曲线会先冲过头一点点再弹回来，非常有物理感
-                        anim.setEasingCurve(QEasingCurve.Type.OutBack) 
+                        # 使用弹性曲线实现苹果风格的动画效果
+                        elastic_curve = QEasingCurve(QEasingCurve.Type.OutElastic)
+                        elastic_curve.setAmplitude(0.8)
+                        elastic_curve.setPeriod(0.5)
+                        anim.setEasingCurve(elastic_curve) 
                         
                         anim.setStartValue(c.pos())
                         anim.setEndValue(target_pos)
@@ -1731,9 +2295,12 @@ class LauncherWindow(QWidget):
                 dest = self.grid_positions[final_idx]
                 
                 anim = QPropertyAnimation(cell, b'pos', self)
-                anim.setDuration(400)
-                # 结束时也用回弹效果，像磁铁吸附
-                anim.setEasingCurve(QEasingCurve.Type.OutBack)
+                anim.setDuration(FastRunTiming.ELASTIC)
+                # 使用弹性曲线实现苹果风格的吸附效果
+                elastic_curve = QEasingCurve(QEasingCurve.Type.OutElastic)
+                elastic_curve.setAmplitude(1.0)
+                elastic_curve.setPeriod(0.6)
+                anim.setEasingCurve(elastic_curve)
                 anim.setStartValue(cell.pos())
                 anim.setEndValue(dest)
                 anim.start()
@@ -1835,58 +2402,348 @@ class IconLoader(QThread):
 
 class SettingsDialog(QDialog):
     """简单的个性化设置界面。"""
-    def __init__(self, parent, btn_size, grid_spacing, grid_margin, magnet_threshold, magnet_delay):
+    def __init__(self, parent, btn_size, grid_spacing, grid_margin, magnet_threshold, magnet_delay, auto_dock_enabled=True, auto_dock_delay=10):
         super().__init__(parent)
-        self.setWindowTitle('界面设置')
-        self.setMinimumWidth(320)
+        self.setWindowTitle('FastRun 设置')
+        self.setFixedSize(520, 600)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setStyleSheet(f"""
+            QDialog {{
+                background: transparent;
+            }}
+        """)
+        
+        # 居中显示
+        if parent:
+            parent_geom = parent.geometry()
+            self.move(parent_geom.center() - QPoint(self.width() // 2, self.height() // 2))
+        else:
+            # 如果没有父窗口，在屏幕中央显示
+            screen_geom = QApplication.primaryScreen().availableGeometry()
+            self.move(screen_geom.center() - QPoint(self.width() // 2, self.height() // 2))
+        
+        # 添加拖拽功能
+        self._drag_pos = None
+        
+        # 主容器
+        main_container = QFrame(self)
+        main_container.setObjectName('settings_main')
+        main_container.setStyleSheet(f"""
+            #settings_main {{
+                background: rgba(255, 255, 255, 0.98);
+                border-radius: 20px;
+                border: 1px solid rgba(0, 0, 0, 0.1);
+            }}
+        """)
+        
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(main_container)
+        
+        # 为主容器添加拖拽功能
+        main_container.installEventFilter(self)
+        
+        container_layout = QVBoxLayout(main_container)
+        container_layout.setContentsMargins(24, 24, 24, 24)
+        container_layout.setSpacing(20)
+        
+        # 标题
+        title = QLabel('设置')
+        title_font = QFont('SF Pro Display', 24, QFont.Weight.Bold)
+        title.setFont(title_font)
+        title.setStyleSheet(f'color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});')
+        container_layout.addWidget(title)
+        
         form = QFormLayout()
+        form.setSpacing(20)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft)
+        
+        # 通用标签样式
+        label_style = f"""
+            QLabel {{
+                color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 500;
+            }}
+        """
+        
+        # 通用滑块样式
+        slider_style = f"""
+            QSlider::groove:horizontal {{
+                background: rgba(242, 242, 247, 0.8);
+                height: 4px;
+                border-radius: 2px;
+            }}
+            QSlider::handle:horizontal {{
+                background: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                width: 20px;
+                height: 20px;
+                margin: -8px 0;
+                border-radius: 10px;
+            }}
+            QSlider::handle:horizontal:hover {{
+                background: rgb({FastRunColors.PRIMARY_LIGHT.red()}, {FastRunColors.PRIMARY_LIGHT.green()}, {FastRunColors.PRIMARY_LIGHT.blue()});
+            }}
+        """
 
-        self.spin_btn = QSpinBox()
-        self.spin_btn.setRange(60, 160)
-        self.spin_btn.setValue(btn_size)
+        # 图标大小滑块
+        slider_btn = QSlider(Qt.Orientation.Horizontal)
+        slider_btn.setRange(60, 160)
+        slider_btn.setValue(btn_size)
+        slider_btn.setStyleSheet(slider_style)
+        label_btn = QLabel(str(btn_size))
+        label_btn.setMinimumWidth(50)
+        label_btn.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_btn.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_btn.valueChanged.connect(lambda v: label_btn.setText(str(v)))
+        hbox_btn = QHBoxLayout()
+        hbox_btn.addWidget(slider_btn)
+        hbox_btn.addWidget(label_btn)
+        widget_btn = QWidget()
+        widget_btn.setLayout(hbox_btn)
+        label_text_btn = QLabel('图标大小 (px)')
+        label_text_btn.setStyleSheet(label_style)
+        form.addRow(label_text_btn, widget_btn)
+        self.slider_btn = slider_btn
 
-        self.spin_spacing = QSpinBox()
-        self.spin_spacing.setRange(8, 48)
-        self.spin_spacing.setValue(grid_spacing)
+        # 网格间距滑块
+        slider_spacing = QSlider(Qt.Orientation.Horizontal)
+        slider_spacing.setRange(8, 48)
+        slider_spacing.setValue(grid_spacing)
+        slider_spacing.setStyleSheet(slider_style)
+        label_spacing = QLabel(str(grid_spacing))
+        label_spacing.setMinimumWidth(50)
+        label_spacing.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_spacing.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_spacing.valueChanged.connect(lambda v: label_spacing.setText(str(v)))
+        hbox_spacing = QHBoxLayout()
+        hbox_spacing.addWidget(slider_spacing)
+        hbox_spacing.addWidget(label_spacing)
+        widget_spacing = QWidget()
+        widget_spacing.setLayout(hbox_spacing)
+        label_text_spacing = QLabel('网格间距 (px)')
+        label_text_spacing.setStyleSheet(label_style)
+        form.addRow(label_text_spacing, widget_spacing)
+        self.slider_spacing = slider_spacing
 
-        self.spin_margin = QSpinBox()
-        self.spin_margin.setRange(0, 48)
-        self.spin_margin.setValue(grid_margin)
+        # 网格边距滑块
+        slider_margin = QSlider(Qt.Orientation.Horizontal)
+        slider_margin.setRange(0, 48)
+        slider_margin.setValue(grid_margin)
+        slider_margin.setStyleSheet(slider_style)
+        label_margin = QLabel(str(grid_margin))
+        label_margin.setMinimumWidth(50)
+        label_margin.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_margin.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_margin.valueChanged.connect(lambda v: label_margin.setText(str(v)))
+        hbox_margin = QHBoxLayout()
+        hbox_margin.addWidget(slider_margin)
+        hbox_margin.addWidget(label_margin)
+        widget_margin = QWidget()
+        widget_margin.setLayout(hbox_margin)
+        label_text_margin = QLabel('网格边距 (px)')
+        label_text_margin.setStyleSheet(label_style)
+        form.addRow(label_text_margin, widget_margin)
+        self.slider_margin = slider_margin
 
-        self.spin_mag = QSpinBox()
-        self.spin_mag.setRange(8, 80)
-        self.spin_mag.setValue(magnet_threshold)
+        # 磁吸距离滑块
+        slider_mag = QSlider(Qt.Orientation.Horizontal)
+        slider_mag.setRange(8, 80)
+        slider_mag.setValue(magnet_threshold)
+        slider_mag.setStyleSheet(slider_style)
+        label_mag = QLabel(str(magnet_threshold))
+        label_mag.setMinimumWidth(50)
+        label_mag.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_mag.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_mag.valueChanged.connect(lambda v: label_mag.setText(str(v)))
+        hbox_mag = QHBoxLayout()
+        hbox_mag.addWidget(slider_mag)
+        hbox_mag.addWidget(label_mag)
+        widget_mag = QWidget()
+        widget_mag.setLayout(hbox_mag)
+        label_text_mag = QLabel('磁吸距离 (px)')
+        label_text_mag.setStyleSheet(label_style)
+        form.addRow(label_text_mag, widget_mag)
+        self.slider_mag = slider_mag
 
-        self.spin_delay = QSpinBox()
-        self.spin_delay.setRange(80, 1200)
-        self.spin_delay.setSingleStep(20)
-        self.spin_delay.setValue(magnet_delay)
+        # 磁吸延时滑块
+        slider_delay = QSlider(Qt.Orientation.Horizontal)
+        slider_delay.setRange(80, 1200)
+        slider_delay.setValue(magnet_delay)
+        slider_delay.setSingleStep(20)
+        slider_delay.setStyleSheet(slider_style)
+        label_delay = QLabel(str(magnet_delay))
+        label_delay.setMinimumWidth(50)
+        label_delay.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_delay.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_delay.valueChanged.connect(lambda v: label_delay.setText(str(v)))
+        hbox_delay = QHBoxLayout()
+        hbox_delay.addWidget(slider_delay)
+        hbox_delay.addWidget(label_delay)
+        widget_delay = QWidget()
+        widget_delay.setLayout(hbox_delay)
+        label_text_delay = QLabel('磁吸延时 (ms)')
+        label_text_delay.setStyleSheet(label_style)
+        form.addRow(label_text_delay, widget_delay)
+        self.slider_delay = slider_delay
 
-        form.addRow('图标大小(px)', self.spin_btn)
-        form.addRow('网格间距(px)', self.spin_spacing)
-        form.addRow('网格边距(px)', self.spin_margin)
-        form.addRow('磁吸距离(px)', self.spin_mag)
-        form.addRow('磁吸延时(ms)', self.spin_delay)
-        layout.addLayout(form)
+        # 自动停靠开关
+        self.check_auto_dock = QCheckBox('启用自动停靠')
+        self.check_auto_dock.setChecked(auto_dock_enabled)
+        self.check_auto_dock.setStyleSheet(f"""
+            QCheckBox {{
+                color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+                font-size: 15px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 22px;
+                height: 22px;
+                border-radius: 6px;
+                border: 2px solid rgba({FastRunColors.TEXT_TERTIARY.red()}, {FastRunColors.TEXT_TERTIARY.green()}, {FastRunColors.TEXT_TERTIARY.blue()}, 0.4);
+                background: transparent;
+            }}
+            QCheckBox::indicator:checked {{
+                background: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                border-color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+            }}
+        """)
+        form.addRow('', self.check_auto_dock)
+
+        # 自动停靠延时滑块
+        slider_auto_dock_delay = QSlider(Qt.Orientation.Horizontal)
+        slider_auto_dock_delay.setRange(3, 30)
+        slider_auto_dock_delay.setValue(auto_dock_delay)
+        slider_auto_dock_delay.setSingleStep(1)
+        slider_auto_dock_delay.setStyleSheet(slider_style)
+        label_auto_dock_delay = QLabel(str(auto_dock_delay))
+        label_auto_dock_delay.setMinimumWidth(50)
+        label_auto_dock_delay.setAlignment(Qt.AlignmentFlag.AlignRight)
+        label_auto_dock_delay.setStyleSheet(f"""
+            QLabel {{
+                color: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                font-size: 15px;
+                font-weight: 600;
+            }}
+        """)
+        slider_auto_dock_delay.valueChanged.connect(lambda v: label_auto_dock_delay.setText(str(v)))
+        # 根据开关状态启用/禁用滑块
+        slider_auto_dock_delay.setEnabled(auto_dock_enabled)
+        self.check_auto_dock.toggled.connect(slider_auto_dock_delay.setEnabled)
+        hbox_auto_dock_delay = QHBoxLayout()
+        hbox_auto_dock_delay.addWidget(slider_auto_dock_delay)
+        hbox_auto_dock_delay.addWidget(label_auto_dock_delay)
+        widget_auto_dock_delay = QWidget()
+        widget_auto_dock_delay.setLayout(hbox_auto_dock_delay)
+        label_text_auto_dock = QLabel('自动停靠延时 (秒)')
+        label_text_auto_dock.setStyleSheet(label_style)
+        form.addRow(label_text_auto_dock, widget_auto_dock_delay)
+        self.slider_auto_dock_delay = slider_auto_dock_delay
+
+        container_layout.addLayout(form)
+
+        # 按钮样式
+        button_style = f"""
+            QPushButton {{
+                background: rgb({FastRunColors.PRIMARY.red()}, {FastRunColors.PRIMARY.green()}, {FastRunColors.PRIMARY.blue()});
+                color: white;
+                border: none;
+                border-radius: 10px;
+                padding: 10px 24px;
+                font-size: 15px;
+                font-weight: 600;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background: rgb({FastRunColors.PRIMARY_LIGHT.red()}, {FastRunColors.PRIMARY_LIGHT.green()}, {FastRunColors.PRIMARY_LIGHT.blue()});
+            }}
+            QPushButton:pressed {{
+                background: rgb({FastRunColors.PRIMARY_DARK.red()}, {FastRunColors.PRIMARY_DARK.green()}, {FastRunColors.PRIMARY_DARK.blue()});
+            }}
+        """
+        
+        cancel_button_style = f"""
+            QPushButton {{
+                background: rgba(242, 242, 247, 0.8);
+                color: rgb({FastRunColors.TEXT_PRIMARY.red()}, {FastRunColors.TEXT_PRIMARY.green()}, {FastRunColors.TEXT_PRIMARY.blue()});
+                border: none;
+                border-radius: 10px;
+                padding: 10px 24px;
+                font-size: 15px;
+                font-weight: 500;
+                min-width: 80px;
+            }}
+            QPushButton:hover {{
+                background: rgba(242, 242, 247, 1.0);
+            }}
+        """
 
         btns = QHBoxLayout()
         ok = QPushButton('保存')
+        ok.setStyleSheet(button_style)
         cancel = QPushButton('取消')
+        cancel.setStyleSheet(cancel_button_style)
         ok.clicked.connect(self.accept)
         cancel.clicked.connect(self.reject)
         btns.addStretch()
-        btns.addWidget(ok)
         btns.addWidget(cancel)
-        layout.addLayout(btns)
+        btns.addWidget(ok)
+        container_layout.addLayout(btns)
+
+    def eventFilter(self, source, event):
+        """处理设置对话框的拖拽。"""
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            return True
+        elif event.type() == QEvent.Type.MouseMove and self._drag_pos is not None:
+            if event.buttons() & Qt.MouseButton.LeftButton:
+                self.move(event.globalPosition().toPoint() - self._drag_pos)
+                return True
+        elif event.type() == QEvent.Type.MouseButtonRelease:
+            self._drag_pos = None
+            return True
+        return super().eventFilter(source, event)
 
     def values(self):
         return {
-            'btn_size': self.spin_btn.value(),
-            'grid_spacing': self.spin_spacing.value(),
-            'grid_margin': self.spin_margin.value(),
-            'magnet_threshold': self.spin_mag.value(),
-            'magnet_delay': self.spin_delay.value(),
+            'btn_size': self.slider_btn.value(),
+            'grid_spacing': self.slider_spacing.value(),
+            'grid_margin': self.slider_margin.value(),
+            'magnet_threshold': self.slider_mag.value(),
+            'magnet_delay': self.slider_delay.value(),
+            'auto_dock_enabled': self.check_auto_dock.isChecked(),
+            'auto_dock_delay': self.slider_auto_dock_delay.value(),
         }
 
 

@@ -1,8 +1,230 @@
 [
     {
-        "name": "ThunderStart",
-        "path": "D:/Thunder/Program/ThunderStart.exe",
-        "icon": "D:/Thunder/Program/ThunderStart.exe"
+        "name": "场景设计 & doubao.com 等5项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & doubao.com 等6项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "livehime",
+        "path": "D:\\livehime\\livehime.exe",
+        "icon": "D:\\livehime\\livehime.exe"
+    },
+    {
+        "name": "doubao.com & DeviceDriver",
+        "combo": [
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & DeviceDriver 等5项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & DeviceDriver 等8项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & DeviceDriver 等3项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & 场景设计 等6项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计",
+        "path": "C:\\Users\\soub\\Desktop\\场景设计",
+        "icon": "C:\\Users\\soub\\Desktop\\场景设计"
     },
     {
         "name": "DeviceDriver",
@@ -10,8 +232,222 @@
         "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
     },
     {
-        "name": "oopz-runner",
-        "path": "D:\\oopz\\oopz-runner.exe",
-        "icon": "D:\\oopz\\oopz-runner.exe"
+        "name": "场景设计 & doubao.com 等9项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & doubao.com",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & DeviceDriver",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "www.iqiyi.com & doubao.com",
+        "combo": [
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & doubao.com 等4项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "ThunderStart",
+        "path": "D:/Thunder/Program/ThunderStart.exe",
+        "icon": "D:/Thunder/Program/ThunderStart.exe"
+    },
+    {
+        "name": "doubao.com",
+        "path": "http://doubao.com",
+        "icon": "http://doubao.com"
+    },
+    {
+        "name": "DeviceDriver & www.iqiyi.com 等3项",
+        "combo": [
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "DeviceDriver & doubao.com 等3项",
+        "combo": [
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "doubao.com & DeviceDriver",
+        "combo": [
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "DeviceDriver",
+                "path": "D:\\MCHOSE Driver\\DeviceDriver.exe",
+                "icon": "D:\\MCHOSE Driver\\skins\\theme1\\DeviceDriver.ico"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "场景设计 & doubao.com 等3项",
+        "combo": [
+            {
+                "name": "场景设计",
+                "path": "C:\\Users\\soub\\Desktop\\场景设计",
+                "icon": "C:\\Users\\soub\\Desktop\\场景设计"
+            },
+            {
+                "name": "doubao.com",
+                "path": "http://doubao.com",
+                "icon": "http://doubao.com"
+            },
+            {
+                "name": "www.iqiyi.com",
+                "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+                "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
+            }
+        ],
+        "icon": "combo"
+    },
+    {
+        "name": "www.iqiyi.com",
+        "path": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af",
+        "icon": "https://www.iqiyi.com/?vfm=f_432_dhm&fv=8648154ddd63e0af"
     }
 ]
